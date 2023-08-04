@@ -98,7 +98,7 @@ router.put(
       const order = await Order.findById(req.params.id);
 
       if (!order) {
-        return next(new ErrorHandler("не найден id", 400));
+        return next(new ErrorHandler("Order not found with this id", 400));
       }
       if (req.body.status === "Transferred to delivery partner") {
         order.cart.forEach(async (o) => {
@@ -152,7 +152,7 @@ router.put(
       const order = await Order.findById(req.params.id);
 
       if (!order) {
-        return next(new ErrorHandler("не найден id", 400));
+        return next(new ErrorHandler("Order not found with this id", 400));
       }
 
       order.status = req.body.status;
@@ -162,7 +162,7 @@ router.put(
       res.status(200).json({
         success: true,
         order,
-        message: "Возврат оформлен успешно!",
+        message: "Order Refund Request successfully!",
       });
     } catch (error) {
       return next(new ErrorHandler(error.message, 500));
@@ -179,7 +179,7 @@ router.put(
       const order = await Order.findById(req.params.id);
 
       if (!order) {
-        return next(new ErrorHandler("не найден id", 400));
+        return next(new ErrorHandler("Order not found with this id", 400));
       }
 
       order.status = req.body.status;
@@ -188,7 +188,7 @@ router.put(
 
       res.status(200).json({
         success: true,
-        message: "Возврат успешен!",
+        message: "Order Refund successfull!",
       });
 
       if (req.body.status === "Refund Success") {

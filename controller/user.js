@@ -1,41 +1,36 @@
 const express = require("express");
-const path = require("path");
 const User = require("../model/user");
 const router = express.Router();
-const { upload } = require("../multer");
+const cloudinary = require("cloudinary");
 const ErrorHandler = require("../utils/ErrorHandler");
 const catchAsyncErrors = require("../middleware/catchAsyncErrors");
-const fs = require("fs");
 const jwt = require("jsonwebtoken");
 const sendMail = require("../utils/sendMail");
 const sendToken = require("../utils/jwtToken");
 const { isAuthenticated, isAdmin } = require("../middleware/auth");
 
-router.post("/create-user", upload.single("file"), async (req, res, next) => {
+// create user
+router.post("/create-user", async (req, res, next) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, avatar } = req.body;
     const userEmail = await User.findOne({ email });
 
     if (userEmail) {
-      const filename = req.file.filename;
-      const filePath = `uploads/${filename}`;
-      fs.unlink(filePath, (err) => {
-        if (err) {
-          console.log(err);
-          res.status(500).json({ message: "не удаляется" });
-        }
-      });
-      return next(new ErrorHandler("Уже есть такой аккаунт", 400));
+      return next(new ErrorHandler("User already exists", 400));
     }
 
-    const filename = req.file.filename;
-    const fileUrl = path.join(filename);
+    const myCloud = await cloudinary.v2.uploader.upload(avatar, {
+      folder: "avatars",
+    });
 
     const user = {
       name: name,
       email: email,
       password: password,
-      avatar: fileUrl,
+      avatar: {
+        public_id: myCloud.public_id,
+        url: myCloud.secure_url,
+      },
     };
 
     const activationToken = createActivationToken(user);
@@ -45,12 +40,12 @@ router.post("/create-user", upload.single("file"), async (req, res, next) => {
     try {
       await sendMail({
         email: user.email,
-        subject: "Активируйте свой аккаунт",
-        message: `Привет ${user.name}, пожалуйста нажмите на ссылку снизу, чтобы активировать ваш аккаунт: ${activationUrl}`,
+        subject: "Activate your account",
+        message: `Hello ${user.name}, please click on the link to activate your account: ${activationUrl}`,
       });
       res.status(201).json({
         success: true,
-        message: `пожалуйста проверьте ваш email:- ${user.email} чтобы активировать ваш аккаунт!`,
+        message: `please check your email:- ${user.email} to activate your account!`,
       });
     } catch (error) {
       return next(new ErrorHandler(error.message, 500));
@@ -80,14 +75,14 @@ router.post(
       );
 
       if (!newUser) {
-        return next(new ErrorHandler("неверный токен", 400));
+        return next(new ErrorHandler("Invalid token", 400));
       }
       const { name, email, password, avatar } = newUser;
 
       let user = await User.findOne({ email });
 
       if (user) {
-        return next(new ErrorHandler("Аккаунт уже есть", 400));
+        return next(new ErrorHandler("User already exists", 400));
       }
       user = await User.create({
         name,
@@ -111,20 +106,20 @@ router.post(
       const { email, password } = req.body;
 
       if (!email || !password) {
-        return next(new ErrorHandler("Заполните все поля!", 400));
+        return next(new ErrorHandler("Please provide the all fields!", 400));
       }
 
       const user = await User.findOne({ email }).select("+password");
 
       if (!user) {
-        return next(new ErrorHandler("Нет такого пользователя!", 400));
+        return next(new ErrorHandler("User doesn't exists!", 400));
       }
 
       const isPasswordValid = await user.comparePassword(password);
 
       if (!isPasswordValid) {
         return next(
-          new ErrorHandler("Проверьте данные", 400)
+          new ErrorHandler("Please provide the correct information", 400)
         );
       }
 
@@ -144,7 +139,7 @@ router.get(
       const user = await User.findById(req.user.id);
 
       if (!user) {
-        return next(new ErrorHandler("Не существует", 400));
+        return next(new ErrorHandler("User doesn't exists", 400));
       }
 
       res.status(200).json({
@@ -165,10 +160,12 @@ router.get(
       res.cookie("token", null, {
         expires: new Date(Date.now()),
         httpOnly: true,
+        sameSite: "none",
+        secure: true,
       });
       res.status(201).json({
         success: true,
-        message: "Вы вышли!",
+        message: "Log out successful!",
       });
     } catch (error) {
       return next(new ErrorHandler(error.message, 500));
@@ -187,14 +184,14 @@ router.put(
       const user = await User.findOne({ email }).select("+password");
 
       if (!user) {
-        return next(new ErrorHandler("Не найден", 400));
+        return next(new ErrorHandler("User not found", 400));
       }
 
       const isPasswordValid = await user.comparePassword(password);
 
       if (!isPasswordValid) {
         return next(
-          new ErrorHandler("Проверьте данные", 400)
+          new ErrorHandler("Please provide the correct information", 400)
         );
       }
 
@@ -218,24 +215,30 @@ router.put(
 router.put(
   "/update-avatar",
   isAuthenticated,
-  upload.single("image"),
   catchAsyncErrors(async (req, res, next) => {
     try {
-      const existsUser = await User.findById(req.user.id);
+      let existsUser = await User.findById(req.user.id);
+      if (req.body.avatar !== "") {
+        const imageId = existsUser.avatar.public_id;
 
-      const existAvatarPath = `uploads/${existsUser.avatar}`;
+        await cloudinary.v2.uploader.destroy(imageId);
 
-      fs.unlinkSync(existAvatarPath);
+        const myCloud = await cloudinary.v2.uploader.upload(req.body.avatar, {
+          folder: "avatars",
+          width: 150,
+        });
 
-      const fileUrl = path.join(req.file.filename);
+        existsUser.avatar = {
+          public_id: myCloud.public_id,
+          url: myCloud.secure_url,
+        };
+      }
 
-      const user = await User.findByIdAndUpdate(req.user.id, {
-        avatar: fileUrl,
-      });
+      await existsUser.save();
 
       res.status(200).json({
         success: true,
-        user,
+        user: existsUser,
       });
     } catch (error) {
       return next(new ErrorHandler(error.message, 500));
@@ -256,7 +259,7 @@ router.put(
       );
       if (sameTypeAddress) {
         return next(
-          new ErrorHandler(`${req.body.addressType} адресс уже есть`)
+          new ErrorHandler(`${req.body.addressType} address already exists`)
         );
       }
 
@@ -292,8 +295,6 @@ router.delete(
       const userId = req.user._id;
       const addressId = req.params.id;
 
-      console.log(addressId);
-
       await User.updateOne(
         {
           _id: userId,
@@ -323,12 +324,12 @@ router.put(
       );
 
       if (!isPasswordMatched) {
-        return next(new ErrorHandler("Старый пароль неверный!", 400));
+        return next(new ErrorHandler("Old password is incorrect!", 400));
       }
 
       if (req.body.newPassword !== req.body.confirmPassword) {
         return next(
-          new ErrorHandler("Не совпадает!", 400)
+          new ErrorHandler("Password doesn't matched with each other!", 400)
         );
       }
       user.password = req.body.newPassword;
@@ -337,7 +338,7 @@ router.put(
 
       res.status(200).json({
         success: true,
-        message: "Пароль обнавлен успешно!",
+        message: "Password updated successfully!",
       });
     } catch (error) {
       return next(new ErrorHandler(error.message, 500));
@@ -393,15 +394,19 @@ router.delete(
 
       if (!user) {
         return next(
-          new ErrorHandler("недоступен", 400)
+          new ErrorHandler("User is not available with this id", 400)
         );
       }
+
+      const imageId = user.avatar.public_id;
+
+      await cloudinary.v2.uploader.destroy(imageId);
 
       await User.findByIdAndDelete(req.params.id);
 
       res.status(201).json({
         success: true,
-        message: "удален!",
+        message: "User deleted successfully!",
       });
     } catch (error) {
       return next(new ErrorHandler(error.message, 500));

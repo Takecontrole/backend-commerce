@@ -1,5 +1,5 @@
 {
-  "name": "e-shop-tutorial",
+  "name": "back",
   "version": "1.0.0",
   "description": "",
   "main": "server.js",
@@ -11,10 +11,11 @@
     "start": "node server.js",
     "heroku-postbuild": "NPM_CONFIG_PRODUCTION=false"
   },
-  "author": "shahriar Sajeeb",
+  "author": "Take control",
   "license": "ISC",
   "dependencies": {
     "bcryptjs": "^2.4.3",
+    "cloudinary": "^1.40.0",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
     "dotenv": "^16.0.3",
